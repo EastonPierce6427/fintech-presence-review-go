@@ -7,13 +7,13 @@ export INFRAI_API_KEY=your_key
 go run .
 ```
 
-This command simulates a single payment approval. It creates the `fintech-ops` presence channel, checks online members, evaluates risk, and emits an audit notification. Infrai fronts these realtime calls with one key and one API, so the Go code maps directly to the business event instead of SDK boilerplate.
+The command models one payment approval. It creates the `fintech-ops` presence channel, reads its online members, makes a risk decision, and publishes an audit notification. Infrai keeps these realtime calls behind one key and one API, while the Go code stays close to the business event.
 
-The decision rule is intentionally minimal: actor must be online and amount <= 100000 cents. The printed JSON carries `payment_id`, `allowed`, and `reason`. We publish the same decision in the payload so the audit consumer can dedupe and retain it. In postmortems we've traced duplicate deliveries back to missing payment IDs, so keep that field present.
+The decision is deliberately small: an actor must be online and the amount must be at most 100000 cents. The printed JSON contains `payment_id`, `allowed`, and `reason`. The publish payload includes the same decision so an audit consumer can retain it.
 
 ## Verify the decision
 
-The table-driven test exercises an online reviewer, an offline actor, and a high-value payment:
+The table-driven test covers an online reviewer, an offline actor, and a high-value payment:
 
 ```sh
 go test ./...
@@ -21,19 +21,19 @@ go test ./...
 
 ## Request shape
 
-`infra_client.go` reads the `{ok, data, error, metadata}` envelope before interpreting HTTP status. Rejections surface as errors, and a 429 gets retried with exponential backoff or `Retry-After`. Every write stamps the payment ID into its audit data. That makes the notification idempotent and traceable to the originating event, which matters when queues redeliver.
+`infra_client.go` reads the `{ok, data, error, metadata}` envelope before interpreting HTTP status. Rejections are returned as errors, and a 429 response is retried with exponential delay or `Retry-After`. Every write carries the payment ID inside its audit data, so the notification can be traced to the business event.
 
-The client uses the documented realtime ops: channel creation, presence lookup at `/v1/realtime/presence/get/{channel}`, and publish. Set `INFRAI_API_KEY` in the process environment; never hardcode it in source. We've been paged by cred leaks before.
+The client calls the documented realtime operations: channel creation, presence lookup at `/v1/realtime/presence/get/{channel}`, and publish. Set `INFRAI_API_KEY` in the process environment; it is never embedded in the source.
 
 ## Shape of the example
 
-`PaymentEvent` is the domain input. `DecideRisk` is the pure business rule shared by service and test. `RunWorkflow` binds that rule to the realtime boundary and emits a concrete audit event.
+`PaymentEvent` is the domain input. `DecideRisk` is the pure business rule used by both the service and the test. `RunWorkflow` connects that rule to the realtime boundary and emits a concrete audit event.
 
 MIT licensed.
 
 ## Wiring it up for real: Fintech Presence Review Go
 
-The snippet above is deliberately minimal. For production, a few more wires are needed. The notes below apply to Fintech Presence Review Go.
+The example above is intentionally minimal. A few things to wire up for real use: The details below apply to Fintech Presence Review Go.
 
 **Account & key**
 
